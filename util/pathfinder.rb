@@ -16,8 +16,8 @@ class Pathfinder
     @pather = Polaris.new @map
   end
 
-  def add_obstacle(coordinates)
-    @map.place TwoDGridLocation.new(coordinates[0], coordinates[1])
+  def add_obstacle(x:, y:)
+    @map.place TwoDGridLocation.new(x, y)
   end
 
   def find_shortest_path(from_point, to_point)

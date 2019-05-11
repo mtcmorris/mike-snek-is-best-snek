@@ -49,9 +49,10 @@ EventMachine.run do
         @snake_id = response.fetch("snake_id")
         @auth_token = response.fetch("auth_token") # Auth token is required to authenticate moves for our snake
       else
+        start = Time.now
         # Yay - my_snake lives on - Let's get a move
         move = SnakeEvaluator.new(my_snake, game_state, @map).get_intent
-        puts "Snake is at: #{my_snake.fetch(:head)} - Moving #{@snake_name} #{move}"
+        puts "Snake is at: #{my_snake.fetch(:head)} - Moving #{move} - sorted in #{Time.now - start}"
         $client.set_intent(@snake_id, move, @auth_token)
       end
     end

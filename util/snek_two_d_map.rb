@@ -49,10 +49,6 @@ class SnekTwoDGridMap
     x = location.x
     y = location.y
     [
-      TwoDGridLocation.new(x-1, y-1),
-      TwoDGridLocation.new(x-1, y+1),
-      TwoDGridLocation.new(x+1, y-1),
-      TwoDGridLocation.new(x+1, y+1),
       TwoDGridLocation.new(x-1, y),
       TwoDGridLocation.new(x+1, y),
       TwoDGridLocation.new(x, y-1),

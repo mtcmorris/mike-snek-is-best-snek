@@ -1,7 +1,7 @@
 require 'pry'
 require 'active_support'
 require 'active_support/core_ext/hash/indifferent_access'
-require 'astar'
+require_relative './util/pathfinder'
 require_relative './util/tile'
 
 class SnakeEvaluator
@@ -34,40 +34,43 @@ class SnakeEvaluator
 
   def setup_pathfinder!
     # First step - make all the nodes
+    @pathfinder = Pathfinder.new(@map_x_max, @map_y_max)
     @two_d_array = Marshal.load(Marshal.dump(@unsafe_squares))
     @two_d_array.each_with_index do |row, yPosition|
       row.each_with_index do |tile, xPosition|
         @two_d_array[yPosition][xPosition] = if tile == "#"
-          nil
-        else
-          Tile.new(x: xPosition, y: yPosition)
+          @pathfinder.add_obstacle(x: xPosition, y: yPosition)
         end
       end
     end
 
-    # Next step connect them
-    @two_d_array.each_with_index do |row, yPosition|
-      row.each_with_index do |tile, xPosition|
-        if @two_d_array[yPosition][xPosition]
-          neighbours = [
-            [yPosition - 1, xPosition],
-            [yPosition + 1, xPosition],
-            [yPosition, xPosition - 1],
-            [yPosition, xPosition + 1]
-          ]
+    # # Next step connect them
+    # @two_d_array.each_with_index do |row, yPosition|
+    #   row.each_with_index do |tile, xPosition|
+    #     if @two_d_array[yPosition][xPosition]
+    #       neighbours = [
+    #         [yPosition - 1, xPosition],
+    #         [yPosition + 1, xPosition],
+    #         [yPosition, xPosition - 1],
+    #         [yPosition, xPosition + 1]
+    #       ]
 
-          neighbours.reject!{|y, x| y < 0 || x < 0 || y >= @map_y_max || x >= @map_x_max }
+    #       neighbours.reject!{|y, x| y < 0 || x < 0 || y >= @map_y_max || x >= @map_x_max }
 
-          @two_d_array[yPosition][xPosition].walkable_neighbours = neighbours.map{|y,x| @two_d_array[y][x] }.compact
-        end
-      end
-    end
+    #       @two_d_array[yPosition][xPosition].walkable_neighbours = neighbours.map{|y,x| @two_d_array[y][x] }.compact
+    #     end
+    #   end
+    # end
 
     @two_d_array
   end
 
-  def current_array_position
-    @two_d_array[@current_position.fetch(:y)][@current_position.fetch(:x)]
+  def current_tile
+    Tile.new(x: @current_position.fetch(:x), y: @current_position.fetch(:y))
+  end
+
+  def food_tile
+    Tile.new(x: @items.first.fetch(:position).fetch(:x), y: @items.first.fetch(:position).fetch(:y))
   end
 
   def food_present?
@@ -76,25 +79,50 @@ class SnakeEvaluator
 
   def food_destination
     if @items.any?
-      @two_d_array[@items.first.fetch(:position).fetch(:y)][@items.first.fetch(:position).fetch(:x)]
+      @items.first.fetch(:position)
     end
   end
 
   def get_intent
     calculate_unsafe_map!
 
-    if food_present?
-      setup_pathfinder!
-      binding.pry
-      path = Astar::FindPath.from(current_array_position).to(food_destination)
+    setup_pathfinder!
 
-      binding.pry
-      if path
-        return current_array_position.direction(path[1])
+    if food_present?
+      path = @pathfinder.find_shortest_path(current_tile, food_tile)
+
+      if path.length > 0
+        puts "Moving by path - #{path.length} steps"
+        return current_tile.direction(Tile.from_location(path.first.location))
       end
+    end
+
+    possible_paths = 50.times.map{
+      x, y = [rand(@map_x_max), rand(@map_y_max)]
+      if @unsafe_squares[y][x] != '#'
+        Tile.new(x: x, y: y)
+      end
+    }.compact.map{|possible_destination|
+      path = @pathfinder.find_shortest_path(current_tile, possible_destination)
+
+      if path.length > 20
+        puts "Bailed quickly with a longer path - found one of #{path.length} to x: #{path.first.location.x}, y: #{path.first.location.y}"
+        return current_tile.direction(Tile.from_location(path.first.location))
+      end
+      path
+    }
+
+    possible_paths.sort!{|a,b| b.length <=> a.length }
+
+    if possible_paths.first && !possible_paths.first.empty?
+      path = possible_paths.first
+      puts "Moving by longer path - found one of #{path.length} to x: #{path.first.location.x}, y: #{path.first.location.y}"
+      return current_tile.direction(Tile.from_location(path.first.location))
     end
     # Let's ensure we don't die
     valid_moves = non_death_moves
+
+    puts "Moving by free space"
 
     rank = movement_rank(valid_moves).sort{|a, b| b[:score] <=> a[:score] }
 
@@ -148,24 +176,28 @@ class SnakeEvaluator
   end
 
 
-    # possible_moves.reject!{|possible_intent|
-    #   @our_snake.fetch(:body).include?(next_position(possible_intent).with_indifferent_access)
-    # }
+  def non_death_moves
+    possible_moves = ['N', 'S', 'E', 'W']
 
-    # # Walls
-    # possible_moves.reject!{|possible_intent|
-    #   next_pos = next_position(possible_intent)
-    #   @map[next_pos.fetch(:y)][next_pos.fetch(:x)] == '#'
-    # }
+    possible_moves.reject!{|possible_intent|
+      @our_snake.fetch(:body).include?(next_position(possible_intent).with_indifferent_access)
+    }
 
-    # # Other snake avoidance
-    # possible_moves.reject!{|possible_intent|
-    #   next_pos = next_position(possible_intent)
+    # Walls
+    possible_moves.reject!{|possible_intent|
+      next_pos = next_position(possible_intent)
+      @map[next_pos.fetch(:y)][next_pos.fetch(:x)] == '#'
+    }
 
-    #   @game_state.fetch(:alive_snakes).detect{|other| other.fetch(:head) == next_pos || other.fetch(:body).include?(next_pos) }
-    # }
+    # Other snake avoidance
+    possible_moves.reject!{|possible_intent|
+      next_pos = next_position(possible_intent)
 
-    # possible_moves
+      @game_state.fetch(:alive_snakes).detect{|other| other.fetch(:head) == next_pos || other.fetch(:body).include?(next_pos) }
+    }
+
+    possible_moves
+  end
 
   private
 

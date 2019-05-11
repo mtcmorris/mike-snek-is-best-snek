@@ -8,6 +8,10 @@ class Tile
     @y = y
   end
 
+  def self.from_location(from_location)
+    new(x: from_location.x, y: from_location.y)
+  end
+
   def direction(other)
     if y < other.y
       'S'
