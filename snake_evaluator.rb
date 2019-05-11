@@ -97,7 +97,7 @@ class SnakeEvaluator
       end
     end
 
-    possible_paths = 50.times.map{
+    possible_paths = 20.times.map{
       x, y = [rand(@map_x_max), rand(@map_y_max)]
       if @unsafe_squares[y][x] != '#'
         Tile.new(x: x, y: y)
@@ -162,7 +162,23 @@ class SnakeEvaluator
     @unsafe_squares = Marshal.load(Marshal.dump(@map))
 
     @game_state.fetch(:alive_snakes).each do |other_snake|
-      @unsafe_squares[other_snake.fetch(:head).fetch(:y)][other_snake.fetch(:head).fetch(:x)] = "#"
+      head_x = other_snake.fetch(:head).fetch(:x)
+      head_y = other_snake.fetch(:head).fetch(:y)
+
+      # Discount positions other snake may move to to prevent collisions
+      if head_x != @current_position.fetch(:x) && head_y != @current_position.fetch(:y)
+        possible_head_positions = [
+          [head_y, head_x],
+          [head_y, head_x + 1],
+          [head_y, head_x - 1],
+          [head_y + 1, head_x],
+          [head_y - 1, head_x]
+        ]
+
+        possible_head_positions.each do |y, x|
+          @unsafe_squares[y][x] = "#"
+        end
+      end
 
       other_snake.fetch(:body).each do |pos|
         @unsafe_squares[pos.fetch(:y)][pos.fetch(:x)] = "#"
