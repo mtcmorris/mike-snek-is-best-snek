@@ -5,11 +5,12 @@ describe SnakeEvaluator do
 
   let(:game_state) { {
     "alive_snakes" => alive_snakes,
-    "items" => []
+    "items" => items
     }
   }
 
   let(:alive_snakes) { [] }
+  let(:items) { [] }
 
   let(:map) { [
     ['.', '.', '.'],
@@ -74,11 +75,17 @@ describe SnakeEvaluator do
     let(:map) { [
       ['#', '#', '#'],
       ['.', '.', '.'],
-      ['#', '#', '#']
+      ['.', '#', '.'],
+      ['.', '#', '.'],
+      ['.', '#', '.']
     ] }
 
-    it 'should move towards food' do
+    let(:snake) { {"head" => {"x" => 0, "y" => 3}, "body" => []} }
 
+    let(:items) { [{"position" => {"y" => 4, "x" => 2} }] }
+
+    it 'should move towards food' do
+      is_expected.to eq('N')
     end
   end
 end
