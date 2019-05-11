@@ -1,6 +1,8 @@
 require 'pry'
 require 'active_support'
 require 'active_support/core_ext/hash/indifferent_access'
+require 'astar'
+require_relative './util/tile'
 
 class SnakeEvaluator
   def initialize(our_snake, game_state, map)
@@ -23,11 +25,74 @@ class SnakeEvaluator
     # The map is fetched once - it does not include snake positions - that's in game state.
     # The map uses [y][x] for coords so @map[0][0] would represent the top left most tile
     @map = map
+    @map_y_max = @map.length
+    @map_x_max = @map[0].length
     @our_snake = our_snake.with_indifferent_access
     @current_position = @our_snake.fetch("head")
+    @items = @game_state.fetch(:items)
+  end
+
+  def setup_pathfinder!
+    # First step - make all the nodes
+    @two_d_array = Marshal.load(Marshal.dump(@unsafe_squares))
+    @two_d_array.each_with_index do |row, yPosition|
+      row.each_with_index do |tile, xPosition|
+        @two_d_array[yPosition][xPosition] = if tile == "#"
+          nil
+        else
+          Tile.new(x: xPosition, y: yPosition)
+        end
+      end
+    end
+
+    # Next step connect them
+    @two_d_array.each_with_index do |row, yPosition|
+      row.each_with_index do |tile, xPosition|
+        if @two_d_array[yPosition][xPosition]
+          neighbours = [
+            [yPosition - 1, xPosition],
+            [yPosition + 1, xPosition],
+            [yPosition, xPosition - 1],
+            [yPosition, xPosition + 1]
+          ]
+
+          neighbours.reject!{|y, x| y < 0 || x < 0 || y >= @map_y_max || x >= @map_x_max }
+
+          @two_d_array[yPosition][xPosition].walkable_neighbours = neighbours.map{|y,x| @two_d_array[y][x] }.compact
+        end
+      end
+    end
+
+    @two_d_array
+  end
+
+  def current_array_position
+    @two_d_array[@current_position.fetch(:y)][@current_position.fetch(:x)]
+  end
+
+  def food_present?
+    @items.any?
+  end
+
+  def food_destination
+    if @items.any?
+      @two_d_array[@items.first.fetch(:position).fetch(:y)][@items.first.fetch(:position).fetch(:x)]
+    end
   end
 
   def get_intent
+    calculate_unsafe_map!
+
+    if food_present?
+      setup_pathfinder!
+      binding.pry
+      path = Astar::FindPath.from(current_array_position).to(food_destination)
+
+      binding.pry
+      if path
+        return current_array_position.direction(path[1])
+      end
+    end
     # Let's ensure we don't die
     valid_moves = non_death_moves
 
@@ -64,9 +129,7 @@ class SnakeEvaluator
     }.count
   end
 
-  def non_death_moves
-    possible_moves = ["N", "S", "E", "W"]
-
+  def calculate_unsafe_map!
     # Don't crash into our body
     @unsafe_squares = Marshal.load(Marshal.dump(@map))
 
@@ -78,12 +141,11 @@ class SnakeEvaluator
       end
     end
 
-    possible_moves.reject!{|possible_intent|
-      next_pos = next_position(possible_intent)
-      @unsafe_squares[next_pos.fetch(:y)][next_pos.fetch(:x)] == '#'
-    }
+    # Genererate a tile for us
+    @unsafe_squares[@current_position.fetch(:y)][@current_position.fetch(:x)] = '.'
 
-    possible_moves
+    @unsafe_squares
+  end
 
 
     # possible_moves.reject!{|possible_intent|
@@ -104,7 +166,6 @@ class SnakeEvaluator
     # }
 
     # possible_moves
-  end
 
   private
 
