@@ -21,6 +21,8 @@ class LeePathFinder
   #   [1,1,1,1,0],
   #   [0,0,0,0,1]
   # ]
+
+  attr_accessor :matrix
   def initialize(matrix)
     @matrix = matrix
   end

@@ -18,8 +18,6 @@ describe SnakeEvaluator do
     ['.', '.', '.']
   ] }
 
-
-
   let(:evaluator) { SnakeEvaluator.new(snake, game_state, map) }
   subject { evaluator.get_intent }
 
@@ -87,6 +85,23 @@ describe SnakeEvaluator do
 
     it 'should take opportunities to screw over other snakes' do
       is_expected.to eq('E')
+    end
+  end
+
+  describe "avoiding dead ends" do
+    let(:map) { [
+      ['.', '.', '.'],
+      ['.', '.', '.'],
+      ['.', '#', '.'],
+      ['.', '#', '.']
+    ] }
+
+    let(:snake) { {"head" => {"x" => 2, "y" => 2}, "body" => []} }
+
+    let(:items) { [{"position" => {"y" => 3, "x" => 2} }] }
+
+    it "should move away" do
+      is_expected.to eq('N')
     end
   end
 

@@ -23,4 +23,8 @@ class Tile
       'E'
     end
   end
+
+  def ==(other)
+    @x == other.x && @y == other.y
+  end
 end

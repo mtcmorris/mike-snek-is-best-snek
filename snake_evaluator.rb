@@ -1,9 +1,11 @@
+# :wave: This was a hack project built very quickly at Railscamp as a client for https://github.com/ferocia/snek
+# :heart: for @cmaitchison for a big chunk of code/ideas
+
 require 'pry'
 require 'active_support'
 require 'active_support/core_ext/hash/indifferent_access'
-require_relative './util/pathfinder'
 require_relative './util/tile'
-require_relative './util/path_2'
+require_relative './util/lee_path_finder'
 
 class Hash
   def to_point
@@ -32,6 +34,7 @@ class SnakeEvaluator
     #   body: [{x: <int>, y: <int>}, etc.]
     # }
     @game_state = game_state.with_indifferent_access
+
     # Map is a 2D array of chars.  # represents a wall and '.' is a blank tile.
     # The map is fetched once - it does not include snake positions - that's in game state.
     # The map uses [y][x] for coords so @map[0][0] would represent the top left most tile
@@ -53,29 +56,102 @@ class SnakeEvaluator
     @items = @game_state.fetch(:items).map{|item| item.fetch(:position).to_point }
   end
 
-  def setup_pathfinder!
-    # First step - make all the nodes
-    @pathfinder = LeePathFinder.new unsafe_matrix(@our_snake, @other_snakes)
+  def get_intent
+    # The main - game strategy
+    move = intent_from_snake_strategy
 
-    # # Next step connect them
-    # @two_d_array.each_with_index do |row, yPosition|
-    #   row.each_with_index do |tile, xPosition|
-    #     if @two_d_array[yPosition][xPosition]
-    #       neighbours = [
-    #         [yPosition - 1, xPosition],
-    #         [yPosition + 1, xPosition],
-    #         [yPosition, xPosition - 1],
-    #         [yPosition, xPosition + 1]
-    #       ]
 
-    #       neighbours.reject!{|y, x| y < 0 || x < 0 || y >= @map_y_max || x >= @map_x_max }
+    # This is all just error checking to see that if our main strategy is sensible
+    new_y, new_x = case move
+    when 'N' then [current_tile.y - 1, current_tile.x]
+    when 'S' then [current_tile.y + 1, current_tile.x]
+    when 'E' then [current_tile.y, current_tile.x + 1]
+    when 'W' then [current_tile.y, current_tile.x - 1]
+    else [0, 0] # Dead on invalid move
+    end
 
-    #       @two_d_array[yPosition][xPosition].walkable_neighbours = neighbours.map{|y,x| @two_d_array[y][x] }.compact
-    #     end
-    #   end
-    # end
+    new_position = Tile.new(x: new_x, y: new_y)
+    @pathfinder.matrix[current_tile.y][current_tile.x] = 0
+
+    new_longest = @pathfinder.find_longest_path(new_position)
+
+    if new_longest.nil? || (new_longest.length < 30 && new_longest.length < (longest_path.length / 2))
+      puts "Taking defensive measures - got given path #{move} from strat but bailing as path length is #{new_longest.length} (vs #{longest_path.length})"
+      return current_tile.direction(Tile.from_location(longest_path.first))
+    else
+      move
+    end
   end
 
+  def intent_from_snake_strategy
+    setup_pathfinder!
+
+    # Objective 1: - seek close food - food is close if there isn't other snakes nearby
+    if wants_food?
+      path = @pathfinder.find_shortest_path(current_tile, food_destination)
+
+      if path.length > 0
+        puts "Eating by path - #{path.length} steps"
+        return current_tile.direction(Tile.from_location(path.first))
+      end
+    end
+
+    # Objective 2: - Attack.  If there's a snake nearby is there an opportunity for us to reduce its longest path
+    if enemies_near?
+      nearest = nearest_enemy
+      enemy_position = nearest_enemy.fetch(:head).to_point
+      nearest_pathfinder = enemy_pathfinder(nearest)
+      nearest_path = nearest_pathfinder.find_longest_path(enemy_position)
+      target_node = nearest_path.detect{|node|
+        @pathfinder.distance(node, current_tile) < @pathfinder.distance(node, enemy_position)
+      }
+      if target_node
+        path = @pathfinder.find_shortest_path(current_tile, target_node)
+
+        if path.length > 0
+          puts "Attacking - #{path.length} steps"
+          return current_tile.direction(Tile.from_location(path.first))
+        end
+      end
+    end
+
+    if longest_path.empty?
+      return "N" # We're dead
+    elsif should_conserve?
+      # Objective 3: - If space constrained, conserve as much space as possible
+      # In this strat we need a pathfinder where our head is unpathable
+      conserve_pathfinder = LeePathFinder.new unsafe_matrix(@our_snake, @other_snakes, head_unpathable: true)
+
+      begin
+        reverse_path = conserve_pathfinder.find_longest_path(longest_path.last)
+        reverse_longest_tile = reverse_path.last
+        if reverse_longest_tile == current_tile
+          reverse_longest_tile = reverse_path[-2]
+        end
+        path = @pathfinder.find_shortest_path(current_tile, reverse_longest_tile)
+        puts "Conserving space"
+      rescue
+        return "N" #We're dead anyway
+      end
+
+      if path && path.first
+        return current_tile.direction(Tile.from_location(path.first))
+      end
+    else
+      # Objective 4: Move into open space
+      puts "Free space -  longer path: #{longest_path.length}"
+      return current_tile.direction(Tile.from_location(longest_path.first))
+    end
+
+    return "N"
+  end
+
+
+  def setup_pathfinder!
+    @pathfinder = LeePathFinder.new unsafe_matrix(@our_snake, @other_snakes, head_unpathable: false)
+  end
+
+  # Returns a pathfinder within the context of an enemy - eg head logic/matrix etc are different depending on the enemy
   def enemy_pathfinder(enemy)
     them_for_enemy = @other_snakes - [@our_snake] - [enemy]
     LeePathFinder.new unsafe_matrix(enemy, them_for_enemy)
@@ -108,60 +184,34 @@ class SnakeEvaluator
 
   def enemies_near?
     return false if @other_snakes.empty?
-    @other_snakes.map{|other| @pathfinder.distance(other.fetch(:head).to_point, current_tile) }.min <= 4
+    @other_snakes.map{|other| @pathfinder.distance(other.fetch(:head).to_point, current_tile) }.min <= 6
   end
 
   def nearest_enemy
     @other_snakes.min{|a,b| @pathfinder.distance(a.fetch(:head).to_point, current_tile) <=> @pathfinder.distance(b.fetch(:head).to_point, current_tile) }
   end
 
-  def get_intent
-    setup_pathfinder!
+  def wants_food?
+    is_small? && food_destination
+  end
 
-    if food_destination
-      path = @pathfinder.find_shortest_path(current_tile, food_destination)
+  def is_small?
+    @our_snake.fetch(:body).length < 120
+  end
 
-      if path.length > 0
-        puts "Eating by path - #{path.length} steps"
-        return current_tile.direction(Tile.from_location(path.first))
-      end
-    end
-
-    if enemies_near?
-      nearest = nearest_enemy
-      enemy_position = nearest_enemy.fetch(:head).to_point
-      nearest_pathfinder = enemy_pathfinder(nearest)
-      nearest_path = nearest_pathfinder.find_longest_path(enemy_position)
-      target_node = nearest_path.detect{|node|
-        @pathfinder.distance(node, current_tile) < @pathfinder.distance(node, enemy_position)
-      }
-      if target_node
-        path = @pathfinder.find_shortest_path(current_tile, target_node)
-
-        if path.length > 0
-          puts "Attacking - #{path.length} steps"
-          return current_tile.direction(Tile.from_location(path.first))
-        end
-      end
-    end
-
-    longest_path = @pathfinder.find_longest_path(current_tile)
-
-    if longest_path.empty?
-      return "N" # We're dead
-    elsif longest_path.length < 20
-      # Conserve space strat
-      reverse_longest_tile = @pathfinder.find_longest_path(longest_path.last).first
-      path = @pathfinder.find_shortest_path(current_tile, reverse_longest_tile)
-      puts "Conserving space"
-      current_tile.direction(Tile.from_location(path.first))
-    else
-      puts "Free space -  longer path: #{longest_path.length}"
-      return current_tile.direction(Tile.from_location(longest_path.first))
+  def should_conserve?
+    if is_small? && longest_path.length < 20
+      true
+    elsif !is_small?
+      true
     end
   end
 
-  def unsafe_matrix(me, them)
+  def longest_path
+    @longest_path ||= @pathfinder.find_longest_path(current_tile)
+  end
+
+  def unsafe_matrix(me, them, head_unpathable: false)
     # Don't crash into our body
     matrix = Marshal.load(Marshal.dump(@map))
 
@@ -197,7 +247,9 @@ class SnakeEvaluator
     end
 
     # Genererate a tile for us
-    matrix[me.fetch(:head).fetch(:y)][me.fetch(:head).fetch(:x)] = 1
+    if head_unpathable
+      matrix[me.fetch(:head).fetch(:y)][me.fetch(:head).fetch(:x)] = 0
+    end
 
     matrix
   end
@@ -205,8 +257,6 @@ class SnakeEvaluator
   private
 
   def debug!
-    # puts "ARRRGG - nothing.\n\nGame state:#{@game_state.inspect}\n\nPosition:#{@current_position}\n\nValid moves: #{valid_moves.inspect}\n\nUnsafe sq:#{@unsafe_squares}"
-
     puts "Map: #{print_map @map}\n"
     puts "Unsafe sq: #{print_map @unsafe_squares}\n"
     puts "Game state: #{@game_state.inspect}\n"
@@ -214,17 +264,5 @@ class SnakeEvaluator
 
   def print_map(array)
     array.map{|arr| arr.join }.join("\n")
-  end
-
-
-
-  def next_position(possible_intent, position = nil)
-    position ||= @current_position
-    case possible_intent
-    when 'N' then {"y" => position.fetch(:y) - 1, "x" => position.fetch(:x)}
-    when 'S' then {"y" => position.fetch(:y) + 1, "x" => position.fetch(:x)}
-    when 'E' then {"y" => position.fetch(:y),     "x" => position.fetch(:x) + 1}
-    when 'W' then {"y" => position.fetch(:y),     "x" => position.fetch(:x) - 1}
-    end.with_indifferent_access
   end
 end
