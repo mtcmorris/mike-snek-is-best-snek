@@ -24,6 +24,10 @@ class Pathfinder
     path_from = TwoDGridLocation.new from_point.x, from_point.y
     path_to   = TwoDGridLocation.new to_point.x, to_point.y
 
-    (@pather.guide(path_from, path_to, nil, 2000) || [])
+    (@pather.guide(path_from, path_to, nil, 400) || [])
+  end
+
+  def distance(from, to)
+    @map.distance(from, to)
   end
 end

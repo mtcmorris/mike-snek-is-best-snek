@@ -4,6 +4,16 @@ require 'active_support/core_ext/hash/indifferent_access'
 require_relative './util/pathfinder'
 require_relative './util/tile'
 
+class Hash
+  def to_point
+    if keys.sort == ["x", "y"] || keys.sort == [:x, :y]
+      Tile.new(x: self['x'] || self[:x], y: self['y'] || self[:y])
+    else
+      raise("No x,y on hash #{inspect}")
+    end
+  end
+end
+
 class SnakeEvaluator
   def initialize(our_snake, game_state, map)
     # Game state is an hash with the following structure
@@ -35,10 +45,9 @@ class SnakeEvaluator
   def setup_pathfinder!
     # First step - make all the nodes
     @pathfinder = Pathfinder.new(@map_x_max, @map_y_max)
-    @two_d_array = Marshal.load(Marshal.dump(@unsafe_squares))
-    @two_d_array.each_with_index do |row, yPosition|
+    @unsafe_squares.each_with_index do |row, yPosition|
       row.each_with_index do |tile, xPosition|
-        @two_d_array[yPosition][xPosition] = if tile == "#"
+        if tile == "#"
           @pathfinder.add_obstacle(x: xPosition, y: yPosition)
         end
       end
@@ -61,16 +70,10 @@ class SnakeEvaluator
     #     end
     #   end
     # end
-
-    @two_d_array
   end
 
   def current_tile
-    Tile.new(x: @current_position.fetch(:x), y: @current_position.fetch(:y))
-  end
-
-  def food_tile
-    Tile.new(x: @items.first.fetch(:position).fetch(:x), y: @items.first.fetch(:position).fetch(:y))
+    @current_position.to_point
   end
 
   def food_present?
@@ -79,7 +82,9 @@ class SnakeEvaluator
 
   def food_destination
     if @items.any?
-      @items.first.fetch(:position)
+      @items.min{|a, b|
+        @pathfinder.distance(current_tile, a.fetch(:position).to_point) <=> @pathfinder.distance(current_tile, b.fetch(:position).to_point)
+      }.fetch(:position).to_point
     end
   end
 
@@ -89,7 +94,7 @@ class SnakeEvaluator
     setup_pathfinder!
 
     if food_present?
-      path = @pathfinder.find_shortest_path(current_tile, food_tile)
+      path = @pathfinder.find_shortest_path(current_tile, food_destination)
 
       if path.length > 0
         puts "Moving by path - #{path.length} steps"
@@ -102,7 +107,7 @@ class SnakeEvaluator
       if @unsafe_squares[y][x] != '#'
         Tile.new(x: x, y: y)
       end
-    }.compact.map{|possible_destination|
+    }.compact.uniq.map{|possible_destination|
       path = @pathfinder.find_shortest_path(current_tile, possible_destination)
 
       if path.length > 20
@@ -166,7 +171,7 @@ class SnakeEvaluator
       head_y = other_snake.fetch(:head).fetch(:y)
 
       # Discount positions other snake may move to to prevent collisions
-      if head_x != @current_position.fetch(:x) && head_y != @current_position.fetch(:y)
+      if head_x != @current_position.fetch(:x) || head_y != @current_position.fetch(:y)
         possible_head_positions = [
           [head_y, head_x],
           [head_y, head_x + 1],
@@ -180,7 +185,8 @@ class SnakeEvaluator
         end
       end
 
-      other_snake.fetch(:body).each do |pos|
+      # Ignore the tail of the snake - it'll be gone by the time we move
+      other_snake.fetch(:body).slice(0..(other_snake.fetch(:body).length - 1)).each do |pos|
         @unsafe_squares[pos.fetch(:y)][pos.fetch(:x)] = "#"
       end
     end
