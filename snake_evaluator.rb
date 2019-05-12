@@ -3,6 +3,7 @@ require 'active_support'
 require 'active_support/core_ext/hash/indifferent_access'
 require_relative './util/pathfinder'
 require_relative './util/tile'
+require_relative './util/path_2'
 
 class Hash
   def to_point
@@ -43,15 +44,18 @@ class SnakeEvaluator
   end
 
   def setup_pathfinder!
-    # First step - make all the nodes
-    @pathfinder = Pathfinder.new(@map_x_max, @map_y_max)
-    @unsafe_squares.each_with_index do |row, yPosition|
-      row.each_with_index do |tile, xPosition|
+    matrix = @unsafe_squares.map{|row|
+      row.map{|tile|
         if tile == "#"
-          @pathfinder.add_obstacle(x: xPosition, y: yPosition)
+          0
+        else
+          1
         end
-      end
-    end
+      }
+    }
+
+    # First step - make all the nodes
+    @pathfinder = LeePathFinder.new(matrix)
 
     # # Next step connect them
     # @two_d_array.each_with_index do |row, yPosition|
@@ -98,7 +102,7 @@ class SnakeEvaluator
 
       if path.length > 0
         puts "Moving by path - #{path.length} steps"
-        return current_tile.direction(Tile.from_location(path.first.location))
+        return current_tile.direction(Tile.from_location(path.first))
       end
     end
 
@@ -111,8 +115,8 @@ class SnakeEvaluator
       path = @pathfinder.find_shortest_path(current_tile, possible_destination)
 
       if path.length > 20
-        puts "Bailed quickly with a longer path - found one of #{path.length} to x: #{path.first.location.x}, y: #{path.first.location.y}"
-        return current_tile.direction(Tile.from_location(path.first.location))
+        puts "Bailed quickly with a longer path - found one of #{path.length} to x: #{path.first.x}, y: #{path.first.y}"
+        return current_tile.direction(Tile.from_location(path.first))
       end
       path
     }
@@ -121,8 +125,8 @@ class SnakeEvaluator
 
     if possible_paths.first && !possible_paths.first.empty?
       path = possible_paths.first
-      puts "Moving by longer path - found one of #{path.length} to x: #{path.first.location.x}, y: #{path.first.location.y}"
-      return current_tile.direction(Tile.from_location(path.first.location))
+      puts "Moving by longer path - found one of #{path.length} to x: #{path.first.x}, y: #{path.first.y}"
+      return current_tile.direction(Tile.from_location(path.first))
     end
     # Let's ensure we don't die
     valid_moves = non_death_moves
