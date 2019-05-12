@@ -13,6 +13,10 @@ class SnekTwoDGridMap
     @grid = {}
   end
 
+  def grid
+    @grid
+  end
+
   def size
     [@w,@h]
   end

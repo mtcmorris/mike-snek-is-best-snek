@@ -87,5 +87,20 @@ describe SnakeEvaluator do
     it 'should move towards food' do
       is_expected.to eq('N')
     end
+
+    context 'when there is multiple food items' do
+      let(:map) { [
+        ['.', '.', '.'],
+        ['.', ',', '.'],
+        ['.', '.', '.'],
+        ['.', '.', '.']
+      ] }
+
+      let(:items) { [{"position" => {"x" => 0, "y" => 0} },{"position" => {"x" => 1, "y" => 3} }] }
+
+      it 'should go for the closest one' do
+        is_expected.to eq('E')
+      end
+    end
   end
 end
