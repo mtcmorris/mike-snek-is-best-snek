@@ -71,6 +71,25 @@ describe SnakeEvaluator do
     end
   end
 
+  describe "offense" do
+    let(:map) { [
+      ['.', '.', '.'],
+      ['.', '.', '.'],
+      ['.', '#', '.'],
+      ['.', '#', '.'],
+      ['.', '#', '.']
+    ] }
+    let(:snake) { {"head" => {"x" => 1, "y" => 1}, "body" => []} }
+
+    let(:alive_snakes) { [
+      {"head" => {"x" => 2, "y" => 3}, "body" => []}
+    ] }
+
+    it 'should take opportunities to screw over other snakes' do
+      is_expected.to eq('E')
+    end
+  end
+
   describe "preferencing food" do
     let(:map) { [
       ['#', '#', '#'],
@@ -100,6 +119,28 @@ describe SnakeEvaluator do
 
       it 'should go for the closest one' do
         is_expected.to eq('E')
+      end
+    end
+
+    context 'when an enemy is closer to food than your snake' do
+      let(:map) { [
+        ['.', '.', '.', '.', '.'],
+        ['.', ',', '.', '.', '.'],
+        ['.', '.', '.', '.', '.'],
+        ['.', '.', '.', '.', '.'],
+        ['.', '.', '.', '.', '.']
+      ] }
+
+      let(:snake) { {"head" => {"x" => 0, "y" => 4}, "body" => []} }
+
+      let(:alive_snakes) { [
+        {"head" => {"x" => 4, "y" => 2}, "body" => []}
+      ] }
+
+      let(:items) { [{"position" => {"x" => 0, "y" => 0} },{"position" => {"x" => 2, "y" => 3} }] }
+
+      it 'should go for the one it can get one' do
+        is_expected.to eq('N')
       end
     end
   end

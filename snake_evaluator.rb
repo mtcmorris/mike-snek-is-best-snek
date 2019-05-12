@@ -35,16 +35,7 @@ class SnakeEvaluator
     # Map is a 2D array of chars.  # represents a wall and '.' is a blank tile.
     # The map is fetched once - it does not include snake positions - that's in game state.
     # The map uses [y][x] for coords so @map[0][0] would represent the top left most tile
-    @map = map
-    @map_y_max = @map.length
-    @map_x_max = @map[0].length
-    @our_snake = our_snake.with_indifferent_access
-    @current_position = @our_snake.fetch("head")
-    @items = @game_state.fetch(:items)
-  end
-
-  def setup_pathfinder!
-    matrix = @unsafe_squares.map{|row|
+    @map = map.map{|row|
       row.map{|tile|
         if tile == "#"
           0
@@ -53,9 +44,18 @@ class SnakeEvaluator
         end
       }
     }
+    @map_y_max = @map.length
+    @map_x_max = @map[0].length
+    @our_snake = our_snake.with_indifferent_access
 
+    @other_snakes = @game_state.fetch(:alive_snakes).select{|s| s != @our_snake }
+    @current_position = @our_snake.fetch("head")
+    @items = @game_state.fetch(:items).map{|item| item.fetch(:position).to_point }
+  end
+
+  def setup_pathfinder!
     # First step - make all the nodes
-    @pathfinder = LeePathFinder.new(matrix)
+    @pathfinder = LeePathFinder.new unsafe_matrix(@our_snake, @other_snakes)
 
     # # Next step connect them
     # @two_d_array.each_with_index do |row, yPosition|
@@ -76,6 +76,11 @@ class SnakeEvaluator
     # end
   end
 
+  def enemy_pathfinder(enemy)
+    them_for_enemy = @other_snakes - [@our_snake] - [enemy]
+    LeePathFinder.new unsafe_matrix(enemy, them_for_enemy)
+  end
+
   def current_tile
     @current_position.to_point
   end
@@ -85,38 +90,82 @@ class SnakeEvaluator
   end
 
   def food_destination
-    if @items.any?
-      @items.min{|a, b|
-        @pathfinder.distance(current_tile, a.fetch(:position).to_point) <=> @pathfinder.distance(current_tile, b.fetch(:position).to_point)
-      }.fetch(:position).to_point
+    @food_destination ||= begin
+      @items.select{|item|
+        is_closest_snake?(item)
+      }.sort{|a,b|
+        @pathfinder.distance(current_tile, a) <=> @pathfinder.distance(current_tile, b)
+      }.first
     end
   end
 
-  def get_intent
-    calculate_unsafe_map!
+  def is_closest_snake?(item_position)
+    return true if @other_snakes.empty?
+    closest = @other_snakes.map{|other| @pathfinder.distance(other.fetch(:head).to_point, item_position) }.min
 
+    closest > @pathfinder.distance(current_tile, item_position)
+  end
+
+  def enemies_near?
+    return false if @other_snakes.empty?
+    @other_snakes.map{|other| @pathfinder.distance(other.fetch(:head).to_point, current_tile) }.min <= 4
+  end
+
+  def nearest_enemy
+    @other_snakes.min{|a,b| @pathfinder.distance(a.fetch(:head).to_point, current_tile) <=> @pathfinder.distance(b.fetch(:head).to_point, current_tile) }
+  end
+
+  def get_intent
     setup_pathfinder!
 
-    if food_present?
+    if food_destination
       path = @pathfinder.find_shortest_path(current_tile, food_destination)
 
       if path.length > 0
-        puts "Moving by path - #{path.length} steps"
+        puts "Eating by path - #{path.length} steps"
         return current_tile.direction(Tile.from_location(path.first))
+      end
+    end
+
+    if enemies_near?
+      nearest = nearest_enemy
+      enemy_position = nearest_enemy.fetch(:head).to_point
+      nearest_pathfinder = enemy_pathfinder(nearest)
+      nearest_path = nearest_pathfinder.find_longest_path(enemy_position)
+      target_node = nearest_path.detect{|node|
+        @pathfinder.distance(node, current_tile) < @pathfinder.distance(node, enemy_position)
+      }
+      if target_node
+        path = @pathfinder.find_shortest_path(current_tile, target_node)
+
+        if path.length > 0
+          puts "Attacking - #{path.length} steps"
+          return current_tile.direction(Tile.from_location(path.first))
+        end
       end
     end
 
     longest_path = @pathfinder.find_longest_path(current_tile)
 
-    puts "Moving on a longer path: #{longest_path.length}"
-    return current_tile.direction(Tile.from_location(longest_path.first))
+    if longest_path.empty?
+      return "N" # We're dead
+    elsif longest_path.length < 20
+      # Conserve space strat
+      reverse_longest_tile = @pathfinder.find_longest_path(longest_path.last).first
+      path = @pathfinder.find_shortest_path(current_tile, reverse_longest_tile)
+      puts "Conserving space"
+      current_tile.direction(Tile.from_location(path.first))
+    else
+      puts "Free space -  longer path: #{longest_path.length}"
+      return current_tile.direction(Tile.from_location(longest_path.first))
+    end
   end
 
-  def calculate_unsafe_map!
+  def unsafe_matrix(me, them)
     # Don't crash into our body
-    @unsafe_squares = Marshal.load(Marshal.dump(@map))
+    matrix = Marshal.load(Marshal.dump(@map))
 
-    @game_state.fetch(:alive_snakes).each do |other_snake|
+    them.each do |other_snake|
       head_x = other_snake.fetch(:head).fetch(:x)
       head_y = other_snake.fetch(:head).fetch(:y)
 
@@ -133,20 +182,24 @@ class SnakeEvaluator
         }
 
         possible_head_positions.each do |y, x|
-          @unsafe_squares[y][x] = "#"
+          matrix[y][x] = 0
         end
       end
 
       # Ignore the tail of the snake - it'll be gone by the time we move
       other_snake.fetch(:body).slice(0..(other_snake.fetch(:body).length - 1)).each do |pos|
-        @unsafe_squares[pos.fetch(:y)][pos.fetch(:x)] = "#"
+        matrix[pos.fetch(:y)][pos.fetch(:x)] = 0
       end
     end
 
-    # Genererate a tile for us
-    @unsafe_squares[@current_position.fetch(:y)][@current_position.fetch(:x)] = '.'
+    me.fetch(:body).slice(0..(me.fetch(:body).length - 1)).each do |pos|
+      matrix[pos.fetch(:y)][pos.fetch(:x)] = 0
+    end
 
-    @unsafe_squares
+    # Genererate a tile for us
+    matrix[me.fetch(:head).fetch(:y)][me.fetch(:head).fetch(:x)] = 1
+
+    matrix
   end
 
   private
