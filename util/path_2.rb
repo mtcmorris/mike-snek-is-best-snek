@@ -47,16 +47,57 @@ class LeePathFinder
     (shortest_path(start.x, start.y, finish.x, finish.y) || []).map{|step_x, step_y| Tile.new(x: step_x, y: step_y) }
   end
 
-  # Returns the shortest path from from_x,from_y to to_x, to_y
-  # as an array of 2 element [x,y] arrays...
-  # or `nil` if no path can be found
-  def shortest_path(from_x, from_y, to_x, to_y)
+  def find_longest_path(start)
+    from_x = start.x
+    from_y = start.y
     @visited = Array.new(@matrix.size) { Array.new(@matrix.first.size) { false } }
+    @farthest_node = nil
     queue = Queue.new
     queue << Node.new(from_x, from_y, 0)
 
     while !queue.empty? do
       node = queue.pop
+
+      if !@farthest_node || node.dist > @farthest_node.dist
+        @farthest_node =node
+      end
+
+      [[-1,0],[1,0],[0,1],[0,-1]].each do |dir|
+        x = node.x + dir[0]
+        y = node.y + dir[1]
+        if is_valid?(x, y)
+          @visited[y][x] = true
+          queue.push(Node.new(x, y, node.dist + 1, node))
+        end
+      end
+    end
+
+    # Trace back the journey
+    journey = []
+    journey.push [@farthest_node.x,@farthest_node.y]
+    while !node.parent.nil? do
+      node = node.parent
+      journey.push [node.x,node.y]
+    end
+    journey.reverse.drop(1).map{|step_x, step_y| Tile.new(x: step_x, y: step_y) }
+  end
+
+  # Returns the shortest path from from_x,from_y to to_x, to_y
+  # as an array of 2 element [x,y] arrays...
+  # or `nil` if no path can be found
+  def shortest_path(from_x, from_y, to_x, to_y)
+    @visited = Array.new(@matrix.size) { Array.new(@matrix.first.size) { false } }
+    @farthest_node = nil
+    queue = Queue.new
+    queue << Node.new(from_x, from_y, 0)
+
+    while !queue.empty? do
+      node = queue.pop
+
+      if !@farthest_node || node.dist > @farthest_node.dist
+        @farthest_node =node
+      end
+
       if node.x == to_x && node.y == to_y
         # We pathed to the target
         target_node = node
@@ -101,4 +142,7 @@ class LeePathFinder
     true
   end
 
+  def print_matrix
+    puts @matrix.map{|row| row.join }.join("\n")
+  end
 end

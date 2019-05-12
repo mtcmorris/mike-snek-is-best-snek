@@ -106,64 +106,10 @@ class SnakeEvaluator
       end
     end
 
-    possible_paths = 20.times.map{
-      x, y = [rand(@map_x_max), rand(@map_y_max)]
-      if @unsafe_squares[y][x] != '#'
-        Tile.new(x: x, y: y)
-      end
-    }.compact.uniq.map{|possible_destination|
-      path = @pathfinder.find_shortest_path(current_tile, possible_destination)
+    longest_path = @pathfinder.find_longest_path(current_tile)
 
-      if path.length > 20
-        puts "Bailed quickly with a longer path - found one of #{path.length} to x: #{path.first.x}, y: #{path.first.y}"
-        return current_tile.direction(Tile.from_location(path.first))
-      end
-      path
-    }
-
-    possible_paths.sort!{|a,b| b.length <=> a.length }
-
-    if possible_paths.first && !possible_paths.first.empty?
-      path = possible_paths.first
-      puts "Moving by longer path - found one of #{path.length} to x: #{path.first.x}, y: #{path.first.y}"
-      return current_tile.direction(Tile.from_location(path.first))
-    end
-    # Let's ensure we don't die
-    valid_moves = non_death_moves
-
-    puts "Moving by free space"
-
-    rank = movement_rank(valid_moves).sort{|a, b| b[:score] <=> a[:score] }
-
-    if rank.any?
-      rank.first[:intent]
-    else
-      debug!
-      valid_moves.sample || ['N', 'S', 'E', 'W'].sample
-    end
-  end
-
-  def movement_rank(intents)
-    intents.map{|intent|
-      {intent: intent, score: score_for_intent(intent)}
-    }
-  end
-
-  def score_for_intent(intent)
-    position = next_position(intent)
-
-    coords_to_eval = [
-      {"y" => position["y"] - 1, "x" => position["x"]},
-      {"y" => position["y"] + 1, "x" => position["x"]},
-      {"y" => position["y"],     "x" => position["x"] - 1},
-      {"y" => position["y"],     "x" => position["x"] + 1}
-    ]
-
-    coords_to_eval.reject!{|coord| coord["y"] < 0 || coord["x"] < 0 || coord["y"] >= @unsafe_squares.length || coord["x"] >= @unsafe_squares[0].length }
-
-    safe_positions = coords_to_eval.select{|coord|
-      @unsafe_squares[coord["y"]][coord["x"]] != "#"
-    }.count
+    puts "Moving on a longer path: #{longest_path.length}"
+    return current_tile.direction(Tile.from_location(longest_path.first))
   end
 
   def calculate_unsafe_map!
@@ -182,7 +128,9 @@ class SnakeEvaluator
           [head_y, head_x - 1],
           [head_y + 1, head_x],
           [head_y - 1, head_x]
-        ]
+        ].reject{|y, x|
+          y < 0 || y >= @map_y_max || x < 0 || x >= @map_x_max
+        }
 
         possible_head_positions.each do |y, x|
           @unsafe_squares[y][x] = "#"
@@ -199,30 +147,6 @@ class SnakeEvaluator
     @unsafe_squares[@current_position.fetch(:y)][@current_position.fetch(:x)] = '.'
 
     @unsafe_squares
-  end
-
-
-  def non_death_moves
-    possible_moves = ['N', 'S', 'E', 'W']
-
-    possible_moves.reject!{|possible_intent|
-      @our_snake.fetch(:body).include?(next_position(possible_intent).with_indifferent_access)
-    }
-
-    # Walls
-    possible_moves.reject!{|possible_intent|
-      next_pos = next_position(possible_intent)
-      @map[next_pos.fetch(:y)][next_pos.fetch(:x)] == '#'
-    }
-
-    # Other snake avoidance
-    possible_moves.reject!{|possible_intent|
-      next_pos = next_position(possible_intent)
-
-      @game_state.fetch(:alive_snakes).detect{|other| other.fetch(:head) == next_pos || other.fetch(:body).include?(next_pos) }
-    }
-
-    possible_moves
   end
 
   private
